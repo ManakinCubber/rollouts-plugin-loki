@@ -2,8 +2,14 @@ package plugin
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"github.com/argoproj/argo-rollouts/metricproviders/plugin/rpc"
+	"k8s.io/utils/env"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,21 +19,19 @@ import (
 	goPlugin "github.com/hashicorp/go-plugin"
 )
 
+const (
+	BasicAuthCredentials = "myuser:mypassword"
+)
+
 var testHandshake = goPlugin.HandshakeConfig{
 	ProtocolVersion:  1,
 	MagicCookieKey:   "ARGO_ROLLOUTS_RPC_PLUGIN",
 	MagicCookieValue: "metrics",
 }
 
-// This is just an example of how to test a plugin.
-func TestRunSuccessfully(t *testing.T) {
-	//Skip test because this is just an example of how to test a plugin.
-	t.Skip("Skipping test because it requires a running prometheus server")
-
+func pluginClient(t *testing.T) (rpc.MetricProviderPlugin, goPlugin.ClientProtocol, func(), chan struct{}) {
+	logCtx := *log.WithFields(log.Fields{"plugin-test": "loki"})
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	logCtx := *log.WithFields(log.Fields{"plugin-test": "prometheus"})
 
 	rpcPluginImp := &RpcPlugin{
 		LogCtx: logCtx,
@@ -35,7 +39,7 @@ func TestRunSuccessfully(t *testing.T) {
 
 	// pluginMap is the map of plugins we can dispense.
 	var pluginMap = map[string]goPlugin.Plugin{
-		"RpcMetricsPlugin": &rpc.RpcMetricsPlugin{Impl: rpcPluginImp},
+		"RpcMetricProviderPlugin": &rpc.RpcMetricProviderPlugin{Impl: rpcPluginImp},
 	}
 
 	ch := make(chan *goPlugin.ReattachConfig, 1)
@@ -73,35 +77,111 @@ func TestRunSuccessfully(t *testing.T) {
 		t.Fatalf("err: %s", err)
 	}
 
-	// Pinging should work
-	if err := client.Ping(); err != nil {
-		t.Fatalf("should not err: %s", err)
-	}
-
-	// Kill which should do nothing
-	c.Kill()
-	if err := client.Ping(); err != nil {
-		t.Fatalf("should not err: %s", err)
-	}
-
 	// Request the plugin
-	raw, err := client.Dispense("RpcMetricsPlugin")
+	raw, err := client.Dispense("RpcMetricProviderPlugin")
 	if err != nil {
 		t.Fail()
 	}
 
-	plugin := raw.(rpc.MetricsPlugin)
+	plugin, ok := raw.(rpc.MetricProviderPlugin)
+	if !ok {
+		t.Fail()
+	}
 
-	err = plugin.NewMetricsPlugin(v1alpha1.Metric{
+	return plugin, client, cancel, closeCh
+}
+
+// This is just an example of how to test a plugin.
+func TestRunSuccessfully(t *testing.T) {
+	plugin, _, cancel, closeCh := pluginClient(t)
+	defer cancel()
+	lokiServer := mockLokiServer("")
+	defer lokiServer.Close()
+
+	err := plugin.InitPlugin()
+	if err.Error() != "" {
+		t.Fail()
+	}
+
+	msg := map[string]interface{}{
+		"address":  env.GetString("LOKI_ADDRESS", lokiServer.URL),
+		"username": env.GetString("LOKI_USERNAME", "myuser"),
+		"password": env.GetString("LOKI_PASSWORD", "mypassword"),
+		"query":    env.GetString("LOKI_QUERY", `sum(rate({cluster="tiime-preprod", namespace="chronos-development"} |= 'ERROR' [15m]))`),
+	}
+
+	jsonBytes, e := json.Marshal(msg)
+	if e != nil {
+		t.Fail()
+	}
+
+	jsonStr := string(jsonBytes)
+
+	runMeasurement := plugin.Run(&v1alpha1.AnalysisRun{}, v1alpha1.Metric{
 		Provider: v1alpha1.MetricProvider{
-			Plugin: map[string]json.RawMessage{"prometheus": json.RawMessage(`{"address":"http://prometheus.local", "query":"machine_cpu_cores"}`)},
+			Plugin: map[string]json.RawMessage{"ManakinCubber/rollouts-plugin-loki": json.RawMessage(jsonStr)},
 		},
+		SuccessCondition: "result[len(result)-1] <= 1",
 	})
-	if err != nil {
+	fmt.Println(runMeasurement)
+	if string(runMeasurement.Phase) != "Successful" {
 		t.Fail()
 	}
 
-	// Canceling should cause an exit
 	cancel()
 	<-closeCh
+}
+
+func mockOAuthServer(accessToken string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.StandardLogger().Infof("Received oauth query")
+		switch strings.TrimSpace(r.URL.Path) {
+		case "/ok":
+			mockOAuthOKResponse(w, r, accessToken)
+		case "/ko":
+			mockOAuthKOResponse(w, r)
+		default:
+			http.NotFoundHandler().ServeHTTP(w, r)
+		}
+	}))
+}
+
+func mockOAuthOKResponse(w http.ResponseWriter, r *http.Request, accessToken string) {
+
+	oAuthResponse := fmt.Sprintf(`{"token_type":"Bearer","expires_in":3599,"access_token":"%s"}`, accessToken)
+
+	sc := http.StatusOK
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(sc)
+	w.Write([]byte(oAuthResponse))
+}
+
+func mockOAuthKOResponse(w http.ResponseWriter, r *http.Request) {
+	sc := http.StatusUnauthorized
+	w.WriteHeader(sc)
+}
+
+func mockLokiServer(expectedAuthorizationHeader string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		log.StandardLogger().Infof("Received prom query")
+
+		authorizationHeader := r.Header.Get("Authorization")
+		// Reject call if we don't find the expected oauth token
+		if (expectedAuthorizationHeader != "" && ("Bearer "+expectedAuthorizationHeader) != authorizationHeader) || (expectedAuthorizationHeader == "" && ("Basic "+base64.StdEncoding.EncodeToString([]byte(BasicAuthCredentials))) != authorizationHeader) {
+
+			log.StandardLogger().Infof("Authorization header not as expected, rejecting")
+			sc := http.StatusUnauthorized
+			w.WriteHeader(sc)
+
+		} else {
+			log.StandardLogger().Infof("Authorization header as expected, continuing")
+			lokiResponse := `{"status": "success", "data": {"resultType": "vector", "result": [{"metric": {}, "value": [1758802217.059, "0.07111111111111111"]}]}}`
+
+			sc := http.StatusOK
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(sc)
+			w.Write([]byte(lokiResponse))
+		}
+	}))
 }

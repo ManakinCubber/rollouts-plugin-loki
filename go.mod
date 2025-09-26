@@ -1,4 +1,4 @@
-module github.com/argoproj-labs/rollouts-plugin-metric-sample-prometheus
+module github.com/ManakinCubber/rollouts-plugin-loki
 
 go 1.19
 
@@ -7,9 +7,8 @@ replace github.com/argoproj/argo-rollouts => github.com/zachaller/argo-rollouts 
 require (
 	github.com/argoproj/argo-rollouts v0.0.0-00010101000000-000000000000
 	github.com/hashicorp/go-plugin v1.4.8
-	github.com/prometheus/client_golang v1.14.0
-	github.com/prometheus/common v0.40.0
 	github.com/sirupsen/logrus v1.9.0
+	k8s.io/utils v0.0.0-20220706174534-f6158b442e7c
 )
 
 require (
@@ -48,6 +47,7 @@ require (
 	google.golang.org/genproto v0.0.0-20230110181048-76db0878b65f // indirect
 	google.golang.org/grpc v1.53.0 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
+	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
@@ -56,7 +56,6 @@ require (
 	k8s.io/client-go v0.24.2 // indirect
 	k8s.io/klog/v2 v2.70.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20220627174259-011e075b9cb8 // indirect
-	k8s.io/utils v0.0.0-20220706174534-f6158b442e7c // indirect
 	sigs.k8s.io/json v0.0.0-20220525155127-227cbc7cc124 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.1 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect

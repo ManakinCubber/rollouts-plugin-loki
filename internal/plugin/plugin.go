@@ -3,11 +3,12 @@ package plugin
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/argoproj/argo-rollouts/utils/plugin/types"
-	"net/url"
-	"os"
+	"io"
+	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/argoproj/argo-rollouts/metricproviders/plugin"
@@ -15,74 +16,91 @@ import (
 	"github.com/argoproj/argo-rollouts/utils/evaluate"
 	metricutil "github.com/argoproj/argo-rollouts/utils/metric"
 	timeutil "github.com/argoproj/argo-rollouts/utils/time"
-	"github.com/prometheus/client_golang/api"
-	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
-	"github.com/prometheus/common/model"
 	log "github.com/sirupsen/logrus"
 )
 
-const EnvVarArgoRolloutsPrometheusAddress string = "ARGO_ROLLOUTS_PROMETHEUS_ADDRESS"
-
-// Here is a real implementation of MetricsPlugin
 type RpcPlugin struct {
 	LogCtx log.Entry
-	api    v1.API
 }
 
 type Config struct {
-	// Address is the HTTP address and port of the prometheus server
+	// Address is the HTTP address and port of the loki server
 	Address string `json:"address,omitempty" protobuf:"bytes,1,opt,name=address"`
-	// Query is a raw prometheus query to perform
+
+	Username string `json:"username,omitempty" protobuf:"bytes,2,opt,name=username"`
+
+	Password string `json:"password,omitempty" protobuf:"bytes,3,opt,name=password"`
+
+	// Query is a raw loki query to perform
 	Query string `json:"query,omitempty" protobuf:"bytes,2,opt,name=query"`
+}
+
+type QueryResponse struct {
+	Status string `json:"status"`
+	Data   Data   `json:"data"`
+}
+
+type Data struct {
+	ResultType string        `json:"resultType"`
+	Result     []LokiResult  `json:"result"`
+	Stats      []interface{} `json:"stats"`
+}
+
+type LokiResult struct {
+	Metric map[string]string `json:"metric,omitempty"`
+	Value  []json.RawMessage `json:"value,omitempty"`
 }
 
 func (g *RpcPlugin) InitPlugin() types.RpcError {
 	return types.RpcError{}
 }
 
-func (g *RpcPlugin) Run(anaysisRun *v1alpha1.AnalysisRun, metric v1alpha1.Metric) v1alpha1.Measurement {
+func (g *RpcPlugin) Run(analysisRun *v1alpha1.AnalysisRun, metric v1alpha1.Metric) v1alpha1.Measurement {
 	startTime := timeutil.MetaNow()
 	newMeasurement := v1alpha1.Measurement{
 		StartedAt: &startTime,
 	}
-
+	client := http.Client{Timeout: time.Duration(10) * time.Second}
 	config := Config{}
-	err := json.Unmarshal(metric.Provider.Plugin["argoproj-labs/sample-prometheus"], &config)
+	response := QueryResponse{}
+
+	err := json.Unmarshal(metric.Provider.Plugin["ManakinCubber/rollouts-plugin-loki"], &config)
 	if err != nil {
 		return metricutil.MarkMeasurementError(newMeasurement, err)
 	}
 
-	api, err := newPrometheusAPI(config.Address)
-	if err != nil {
-		return metricutil.MarkMeasurementError(newMeasurement, err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	reader := io.Reader(strings.NewReader(config.Query))
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-
-	response, warnings, err := api.Query(ctx, config.Query, time.Now())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, config.Address, reader)
 	if err != nil {
+		return metricutil.MarkMeasurementError(newMeasurement, err)
+	}
+	if config.Username != "" && config.Password != "" {
+		req.SetBasicAuth(config.Username, config.Password)
+	}
+	res, err := client.Do(req)
+
+	if err != nil {
+		return metricutil.MarkMeasurementError(newMeasurement, err)
+	}
+	body, err := io.ReadAll(res.Body)
+	defer res.Body.Close()
+	if res.StatusCode > 299 {
+		return metricutil.MarkMeasurementError(newMeasurement, fmt.Errorf("error fetching metrics: %s", res.Status))
+	}
+
+	if err := json.Unmarshal(body, &response); err != nil {
 		return metricutil.MarkMeasurementError(newMeasurement, err)
 	}
 
 	newValue, newStatus, err := g.processResponse(metric, response)
+
 	if err != nil {
 		return metricutil.MarkMeasurementError(newMeasurement, err)
-
 	}
+
 	newMeasurement.Value = newValue
-	if len(warnings) > 0 {
-		warningMetadata := ""
-		for _, warning := range warnings {
-			warningMetadata = fmt.Sprintf(`%s"%s", `, warningMetadata, warning)
-		}
-		warningMetadata = warningMetadata[:len(warningMetadata)-2]
-		if warningMetadata != "" {
-			newMeasurement.Metadata = map[string]string{"warnings": warningMetadata}
-			g.LogCtx.Warnf("Prometheus returned the following warnings: %s", warningMetadata)
-		}
-	}
-
 	newMeasurement.Phase = newStatus
 	finishedTime := timeutil.MetaNow()
 	newMeasurement.FinishedAt = &finishedTime
@@ -109,27 +127,32 @@ func (g *RpcPlugin) GetMetadata(metric v1alpha1.Metric) map[string]string {
 	metricsMetadata := make(map[string]string)
 
 	config := Config{}
-	json.Unmarshal(metric.Provider.Plugin["argoproj-labs/sample-prometheus"], &config)
+	if err := json.Unmarshal(metric.Provider.Plugin["ManakinCubber/rollouts-plugin-loki"], &config); err != nil {
+		return nil
+	}
 	if config.Query != "" {
-		metricsMetadata["ResolvedPrometheusQuery"] = config.Query
+		metricsMetadata["ResolvedLokiQuery"] = config.Query
 	}
 	return metricsMetadata
 }
 
-func (g *RpcPlugin) processResponse(metric v1alpha1.Metric, response model.Value) (string, v1alpha1.AnalysisPhase, error) {
-	switch value := response.(type) {
-	case *model.Scalar:
-		valueStr := value.Value.String()
-		result := float64(value.Value)
-		newStatus, err := evaluate.EvaluateResult(result, metric, g.LogCtx)
-		return valueStr, newStatus, err
-	case model.Vector:
-		results := make([]float64, 0, len(value))
+// Process the loki response query
+func (g *RpcPlugin) processResponse(metric v1alpha1.Metric, response QueryResponse) (string, v1alpha1.AnalysisPhase, error) {
+	switch response.Data.ResultType {
+	case "vector":
+		results := make([]float64, 0, len(response.Data.Result))
 		valueStr := "["
-		for _, s := range value {
-			if s != nil {
-				valueStr = valueStr + s.Value.String() + ","
-				results = append(results, float64(s.Value))
+		for _, s := range response.Data.Result {
+			if s.Value != nil {
+				for _, v := range s.Value {
+					itemValue := rawToString(v)
+					valueFloat, err := strconv.ParseFloat(itemValue, 64)
+					if err != nil {
+						return "", v1alpha1.AnalysisPhaseError, err
+					}
+					valueStr = valueStr + itemValue + ","
+					results = append(results, valueFloat)
+				}
 			}
 		}
 		// if we appended to the string, we should remove the last comma on the string
@@ -140,44 +163,19 @@ func (g *RpcPlugin) processResponse(metric v1alpha1.Metric, response model.Value
 		newStatus, err := evaluate.EvaluateResult(results, metric, g.LogCtx)
 		return valueStr, newStatus, err
 	default:
-		return "", v1alpha1.AnalysisPhaseError, fmt.Errorf("Prometheus metric type not supported")
+		return "", v1alpha1.AnalysisPhaseError, fmt.Errorf("Loki log type not supported")
 	}
 }
 
-func newPrometheusAPI(address string) (v1.API, error) {
-	envValuesByKey := make(map[string]string)
-	if value, ok := os.LookupEnv(fmt.Sprintf("%s", EnvVarArgoRolloutsPrometheusAddress)); ok {
-		envValuesByKey[EnvVarArgoRolloutsPrometheusAddress] = value
-		log.Debugf("ARGO_ROLLOUTS_PROMETHEUS_ADDRESS: %v", envValuesByKey[EnvVarArgoRolloutsPrometheusAddress])
+// helper to decode RawMessage into string safely
+func rawToString(r json.RawMessage) string {
+	var s string
+	if err := json.Unmarshal(r, &s); err == nil {
+		return s
 	}
-	if len(address) != 0 {
-		if !isUrl(address) {
-			return nil, errors.New("prometheus address is not is url format")
-		}
-	} else if envValuesByKey[EnvVarArgoRolloutsPrometheusAddress] != "" {
-		if isUrl(envValuesByKey[EnvVarArgoRolloutsPrometheusAddress]) {
-			address = envValuesByKey[EnvVarArgoRolloutsPrometheusAddress]
-		} else {
-			return nil, errors.New("prometheus address is not is url format")
-		}
-	} else {
-		return nil, errors.New("prometheus address is not configured")
+	var n json.Number
+	if err := json.Unmarshal(r, &n); err == nil {
+		return n.String()
 	}
-	client, err := api.NewClient(api.Config{
-		Address: address,
-	})
-	if err != nil {
-		log.Errorf("Error in getting prometheus client: %v", err)
-		return nil, err
-	}
-	return v1.NewAPI(client), nil
-}
-
-func isUrl(str string) bool {
-	u, err := url.Parse(str)
-	if err != nil {
-		log.Errorf("Error in parsing url: %v", err)
-	}
-	log.Debugf("Parsed url: %v", u)
-	return err == nil && u.Scheme != "" && u.Host != ""
+	return string(r)
 }

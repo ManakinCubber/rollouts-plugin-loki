@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/argoproj-labs/rollouts-plugin-metric-sample-prometheus/internal/plugin"
+	"github.com/ManakinCubber/rollouts-plugin-loki/internal/plugin"
 	rolloutsPlugin "github.com/argoproj/argo-rollouts/metricproviders/plugin/rpc"
 	goPlugin "github.com/hashicorp/go-plugin"
 	log "github.com/sirupsen/logrus"
@@ -18,7 +18,7 @@ var handshakeConfig = goPlugin.HandshakeConfig{
 }
 
 func main() {
-	logCtx := *log.WithFields(log.Fields{"plugin": "prometheus"})
+	logCtx := *log.WithFields(log.Fields{"plugin": "loki"})
 
 	rpcPluginImp := &plugin.RpcPlugin{
 		LogCtx: logCtx,
@@ -27,8 +27,6 @@ func main() {
 	pluginMap := map[string]goPlugin.Plugin{
 		"RpcMetricProviderPlugin": &rolloutsPlugin.RpcMetricProviderPlugin{Impl: rpcPluginImp},
 	}
-
-	logCtx.Debug("message from plugin", "foo", "bar")
 
 	goPlugin.Serve(&goPlugin.ServeConfig{
 		HandshakeConfig: handshakeConfig,
