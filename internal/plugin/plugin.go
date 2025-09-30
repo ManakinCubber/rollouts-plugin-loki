@@ -27,25 +27,30 @@ type Config struct {
 	// Address is the HTTP address and port of the loki server
 	Address string `json:"address,omitempty" protobuf:"bytes,1,opt,name=address"`
 
+	// Username Loki instance username
 	Username string `json:"username,omitempty" protobuf:"bytes,2,opt,name=username"`
 
+	// Password Loki instance user password
 	Password string `json:"password,omitempty" protobuf:"bytes,3,opt,name=password"`
 
 	// Query is a raw loki query to perform
 	Query string `json:"query,omitempty" protobuf:"bytes,2,opt,name=query"`
 }
 
+// QueryResponse Loki response query
 type QueryResponse struct {
 	Status string `json:"status"`
 	Data   Data   `json:"data"`
 }
 
+// Data response detail
 type Data struct {
 	ResultType string        `json:"resultType"`
 	Result     []LokiResult  `json:"result"`
 	Stats      []interface{} `json:"stats"`
 }
 
+// LokiResult result item
 type LokiResult struct {
 	Metric map[string]string `json:"metric,omitempty"`
 	Value  []json.RawMessage `json:"value,omitempty"`

@@ -9,7 +9,6 @@ import (
 	"k8s.io/utils/env"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -107,7 +106,7 @@ func TestRunSuccessfully(t *testing.T) {
 		"address":  env.GetString("LOKI_ADDRESS", lokiServer.URL),
 		"username": env.GetString("LOKI_USERNAME", "myuser"),
 		"password": env.GetString("LOKI_PASSWORD", "mypassword"),
-		"query":    env.GetString("LOKI_QUERY", `sum(rate({cluster="tiime-preprod", namespace="chronos-development"} |= 'ERROR' [15m]))`),
+		"query":    env.GetString("LOKI_QUERY", `sum(rate({cluster="test", namespace="test"} |= 'ERROR' [15m]))`),
 	}
 
 	jsonBytes, e := json.Marshal(msg)
@@ -130,35 +129,6 @@ func TestRunSuccessfully(t *testing.T) {
 
 	cancel()
 	<-closeCh
-}
-
-func mockOAuthServer(accessToken string) *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.StandardLogger().Infof("Received oauth query")
-		switch strings.TrimSpace(r.URL.Path) {
-		case "/ok":
-			mockOAuthOKResponse(w, r, accessToken)
-		case "/ko":
-			mockOAuthKOResponse(w, r)
-		default:
-			http.NotFoundHandler().ServeHTTP(w, r)
-		}
-	}))
-}
-
-func mockOAuthOKResponse(w http.ResponseWriter, r *http.Request, accessToken string) {
-
-	oAuthResponse := fmt.Sprintf(`{"token_type":"Bearer","expires_in":3599,"access_token":"%s"}`, accessToken)
-
-	sc := http.StatusOK
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(sc)
-	w.Write([]byte(oAuthResponse))
-}
-
-func mockOAuthKOResponse(w http.ResponseWriter, r *http.Request) {
-	sc := http.StatusUnauthorized
-	w.WriteHeader(sc)
 }
 
 func mockLokiServer(expectedAuthorizationHeader string) *httptest.Server {
