@@ -27,5 +27,8 @@ release:
 universal_binaries:
   - replace: true
 
+archives:
+  - format: binary
+
 checksum:
   name_template: "checksums.txt"
