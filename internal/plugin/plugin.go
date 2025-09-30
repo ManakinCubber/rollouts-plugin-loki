@@ -85,7 +85,7 @@ func (g *RpcPlugin) Run(analysisRun *v1alpha1.AnalysisRun, metric v1alpha1.Metri
 	if config.Username != "" && config.Password != "" {
 		req.SetBasicAuth(config.Username, config.Password)
 	}
-	res, err := client.Do(req)
+	res, err := client.Get(req.URL.String())
 
 	if err != nil {
 		return metricutil.MarkMeasurementError(newMeasurement, err)
