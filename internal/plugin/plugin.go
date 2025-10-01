@@ -19,6 +19,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	ApiQuery = "/loki/api/v1/query"
+)
+
 type RpcPlugin struct {
 	LogCtx log.Entry
 }
@@ -76,7 +80,13 @@ func (g *RpcPlugin) Run(analysisRun *v1alpha1.AnalysisRun, metric v1alpha1.Metri
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, config.Address, nil)
+
+	lokiUrl, err := url.Parse(config.Address + ApiQuery)
+	if err != nil {
+		return metricutil.MarkMeasurementError(newMeasurement, err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, lokiUrl.String(), nil)
 	if err != nil {
 		return metricutil.MarkMeasurementError(newMeasurement, err)
 	}
