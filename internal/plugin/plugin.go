@@ -45,9 +45,8 @@ type QueryResponse struct {
 
 // Data response detail
 type Data struct {
-	ResultType string        `json:"resultType"`
-	Result     []LokiResult  `json:"result"`
-	Stats      []interface{} `json:"stats"`
+	ResultType string       `json:"resultType"`
+	Result     []LokiResult `json:"result"`
 }
 
 // LokiResult result item
