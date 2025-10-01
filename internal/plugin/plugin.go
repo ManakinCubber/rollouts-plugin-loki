@@ -104,6 +104,7 @@ func (g *RpcPlugin) Run(analysisRun *v1alpha1.AnalysisRun, metric v1alpha1.Metri
 		return metricutil.MarkMeasurementError(newMeasurement, err)
 	}
 
+	fmt.Println(response)
 	newValue, newStatus, err := g.processResponse(metric, response)
 	if err != nil {
 		return metricutil.MarkMeasurementError(newMeasurement, err)
@@ -155,6 +156,7 @@ func (g *RpcPlugin) processResponse(metric v1alpha1.Metric, response QueryRespon
 			if s.Value != nil {
 				for _, v := range s.Value {
 					itemValue := rawToString(v)
+					fmt.Println(itemValue)
 					valueFloat, err := strconv.ParseFloat(itemValue, 64)
 					if err != nil {
 						return "", v1alpha1.AnalysisPhaseError, err
@@ -172,7 +174,7 @@ func (g *RpcPlugin) processResponse(metric v1alpha1.Metric, response QueryRespon
 		newStatus, err := evaluate.EvaluateResult(results, metric, g.LogCtx)
 		return valueStr, newStatus, err
 	default:
-		return "", v1alpha1.AnalysisPhaseError, fmt.Errorf("Loki log type not supported")
+		return "", v1alpha1.AnalysisPhaseError, fmt.Errorf("Loki log type not supported ")
 	}
 }
 
