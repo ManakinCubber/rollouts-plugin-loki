@@ -6,13 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/argoproj/argo-rollouts/metricproviders/plugin/rpc"
-	"github.com/argoproj/argo-rollouts/utils/evaluate"
-	"io"
 	"k8s.io/utils/env"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
-	"strconv"
 	"testing"
 	"time"
 
@@ -133,72 +129,6 @@ func TestRunSuccessfully(t *testing.T) {
 
 	cancel()
 	<-closeCh
-
-	config := Config{
-		Address:  "https://logs-prod-012.grafana.net",
-		Username: "994678",
-		Password: "glc_eyJvIjoiMTIyMTE5MCIsIm4iOiJhcmdvLXJvbGxvdXQtdGlpbWUtYXJnby1yb2xsb3V0LXRpaW1lIiwiayI6Ing1U2o3MDlsU3o3NzQ3S2F6WWg1N05uWiIsIm0iOnsiciI6InByb2QtZXUtd2VzdC0yIn19",
-		Query:    "sum(rate({cluster=\"tiime-preprod\", namespace=\"chronos-development\"} |= `ERROR` [30m]))",
-	}
-
-	client := http.Client{Timeout: time.Duration(10) * time.Second}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	config.Address = config.Address + ApiQuery
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, config.Address, nil)
-	params := url.Values{}
-	params.Add("query", config.Query)
-	req.URL.RawQuery = params.Encode()
-
-	if config.Username != "" && config.Password != "" {
-		req.SetBasicAuth(config.Username, config.Password)
-	}
-
-	res, _ := client.Do(req)
-	response := QueryResponse{}
-	body, _ := io.ReadAll(res.Body)
-	json.Unmarshal(body, &response)
-	defer res.Body.Close()
-
-	metric := v1alpha1.Metric{}
-	newValue, newStatus, _ := processResponse(metric, response)
-	fmt.Println(newValue)
-	fmt.Println(newStatus)
-	fmt.Println(response)
-}
-
-func processResponse(metric v1alpha1.Metric, response QueryResponse) (string, v1alpha1.AnalysisPhase, error) {
-	logCtx := log.Entry{}
-	switch response.Data.ResultType {
-	case "vector":
-		results := make([]float64, 0, len(response.Data.Result))
-		valueStr := "["
-		for _, s := range response.Data.Result {
-			if s.Value != nil {
-				for index, v := range s.Value {
-					if index > 0 {
-						itemValue := rawToString(v)
-						log.Infof("Processing result: %s", itemValue)
-						valueFloat, err := strconv.ParseFloat(itemValue, 64)
-						if err != nil {
-							return "", v1alpha1.AnalysisPhaseError, err
-						}
-						valueStr = valueStr + itemValue + ","
-						results = append(results, valueFloat)
-					}
-				}
-			}
-		}
-		// if we appended to the string, we should remove the last comma on the string
-		if len(valueStr) > 1 {
-			valueStr = valueStr[:len(valueStr)-1]
-		}
-		valueStr = valueStr + "]"
-		newStatus, err := evaluate.EvaluateResult(results, metric, logCtx)
-		return valueStr, newStatus, err
-	default:
-		return "", v1alpha1.AnalysisPhaseError, fmt.Errorf("Loki log type not supported ")
-	}
 }
 
 func mockLokiServer(expectedAuthorizationHeader string) *httptest.Server {
