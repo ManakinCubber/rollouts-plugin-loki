@@ -106,6 +106,9 @@ func (g *RpcPlugin) Run(analysisRun *v1alpha1.AnalysisRun, metric v1alpha1.Metri
 
 	log.Infof("%v", response)
 	newValue, newStatus, err := g.processResponse(metric, response)
+	log.Infof("%v", newValue)
+	log.Infof("%v", newStatus)
+	log.Infof("%v", err)
 	if err != nil {
 		return metricutil.MarkMeasurementError(newMeasurement, err)
 	}

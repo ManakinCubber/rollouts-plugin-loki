@@ -19,7 +19,7 @@ builds:
       - -s -w
 
 git:
-  tag_sort: -version:creatordate
+  tag_sort: -v:refname
 
 release:
   prerelease: auto
