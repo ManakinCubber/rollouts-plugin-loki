@@ -19,6 +19,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	ApiQuery = "/loki/api/v1/query"
+)
+
 type RpcPlugin struct {
 	LogCtx log.Entry
 }
@@ -76,6 +80,12 @@ func (g *RpcPlugin) Run(analysisRun *v1alpha1.AnalysisRun, metric v1alpha1.Metri
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	lokiUrl, err := url.Parse(config.Address)
+	if err != nil {
+		return metricutil.MarkMeasurementError(newMeasurement, err)
+	}
+	config.Address = lokiUrl.Path + ApiQuery
+	log.Errorf("Loki URL: %s", config.Address)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, config.Address, nil)
 	if err != nil {
 		return metricutil.MarkMeasurementError(newMeasurement, err)
@@ -99,11 +109,11 @@ func (g *RpcPlugin) Run(analysisRun *v1alpha1.AnalysisRun, metric v1alpha1.Metri
 	if res.StatusCode > 299 {
 		return metricutil.MarkMeasurementError(newMeasurement, fmt.Errorf("error fetching metrics: %s", res.Status))
 	}
-
+	log.Errorf("%v", req)
 	if err := json.Unmarshal(body, &response); err != nil {
 		return metricutil.MarkMeasurementError(newMeasurement, err)
 	}
-
+	log.Errorf("%v", response)
 	newValue, newStatus, err := g.processResponse(metric, response)
 	if err != nil {
 		return metricutil.MarkMeasurementError(newMeasurement, err)
