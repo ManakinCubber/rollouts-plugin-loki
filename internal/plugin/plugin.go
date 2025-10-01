@@ -7,8 +7,8 @@ import (
 	"github.com/argoproj/argo-rollouts/utils/plugin/types"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/argoproj/argo-rollouts/metricproviders/plugin"
@@ -65,6 +65,7 @@ func (g *RpcPlugin) Run(analysisRun *v1alpha1.AnalysisRun, metric v1alpha1.Metri
 	newMeasurement := v1alpha1.Measurement{
 		StartedAt: &startTime,
 	}
+
 	client := http.Client{Timeout: time.Duration(10) * time.Second}
 	config := Config{}
 	response := QueryResponse{}
@@ -74,22 +75,26 @@ func (g *RpcPlugin) Run(analysisRun *v1alpha1.AnalysisRun, metric v1alpha1.Metri
 		return metricutil.MarkMeasurementError(newMeasurement, err)
 	}
 
-	reader := io.Reader(strings.NewReader(config.Query))
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, config.Address, reader)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, config.Address, nil)
 	if err != nil {
 		return metricutil.MarkMeasurementError(newMeasurement, err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+
+	params := url.Values{}
+	params.Add("query", config.Query)
+	req.URL.RawQuery = params.Encode()
+
 	if config.Username != "" && config.Password != "" {
 		req.SetBasicAuth(config.Username, config.Password)
 	}
-	res, err := client.Get(req.URL.String())
 
+	res, err := client.Do(req)
 	if err != nil {
 		return metricutil.MarkMeasurementError(newMeasurement, err)
 	}
+
 	body, err := io.ReadAll(res.Body)
 	defer res.Body.Close()
 	if res.StatusCode > 299 {
@@ -101,7 +106,6 @@ func (g *RpcPlugin) Run(analysisRun *v1alpha1.AnalysisRun, metric v1alpha1.Metri
 	}
 
 	newValue, newStatus, err := g.processResponse(metric, response)
-
 	if err != nil {
 		return metricutil.MarkMeasurementError(newMeasurement, err)
 	}

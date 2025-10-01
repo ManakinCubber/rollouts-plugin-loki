@@ -134,7 +134,7 @@ func TestRunSuccessfully(t *testing.T) {
 func mockLokiServer(expectedAuthorizationHeader string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
-		log.StandardLogger().Infof("Received prom query")
+		log.StandardLogger().Infof("Received loki query")
 
 		authorizationHeader := r.Header.Get("Authorization")
 		// Reject call if we don't find the expected oauth token
