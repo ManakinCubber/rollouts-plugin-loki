@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"github.com/argoproj/argo-rollouts/metricproviders/plugin/rpc"
 	"k8s.io/utils/env"
 	"net/http"
@@ -122,7 +121,7 @@ func TestRunSuccessfully(t *testing.T) {
 		},
 		SuccessCondition: "result[len(result)-1] <= 1",
 	})
-	fmt.Println(runMeasurement)
+
 	if string(runMeasurement.Phase) != "Successful" {
 		t.Fail()
 	}
@@ -131,6 +130,7 @@ func TestRunSuccessfully(t *testing.T) {
 	<-closeCh
 }
 
+// The Loki mock server
 func mockLokiServer(expectedAuthorizationHeader string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
@@ -138,7 +138,7 @@ func mockLokiServer(expectedAuthorizationHeader string) *httptest.Server {
 
 		authorizationHeader := r.Header.Get("Authorization")
 		// Reject call if we don't find the expected oauth token
-		if (expectedAuthorizationHeader != "" && ("Bearer "+expectedAuthorizationHeader) != authorizationHeader) || (expectedAuthorizationHeader == "" && ("Basic "+base64.StdEncoding.EncodeToString([]byte(BasicAuthCredentials))) != authorizationHeader) {
+		if expectedAuthorizationHeader == "" && ("Basic "+base64.StdEncoding.EncodeToString([]byte(BasicAuthCredentials))) != authorizationHeader {
 
 			log.StandardLogger().Infof("Authorization header not as expected, rejecting")
 			sc := http.StatusUnauthorized
