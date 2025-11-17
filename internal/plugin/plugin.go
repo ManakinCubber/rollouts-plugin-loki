@@ -162,6 +162,7 @@ func (g *RpcPlugin) processResponse(metric v1alpha1.Metric, response QueryRespon
 		results := make([]float64, 0, len(response.Data.Result))
 		valueStr := "["
 		for _, s := range response.Data.Result {
+			log.Infof("Processing result: %s", s)
 			if s.Value != nil {
 				for index, v := range s.Value {
 					if index > 0 {
