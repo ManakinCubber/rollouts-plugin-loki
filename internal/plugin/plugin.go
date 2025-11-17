@@ -176,12 +176,13 @@ func (g *RpcPlugin) processResponse(metric v1alpha1.Metric, response QueryRespon
 				}
 			}
 		}
-
+		log.Infof("results: %v", results)
 		// if we appended to the string, we should remove the last comma on the string
 		if len(valueStr) > 1 {
 			valueStr = valueStr[:len(valueStr)-1]
 		}
 		valueStr = valueStr + "]"
+		log.Infof("valueStr: %v", valueStr)
 		newStatus, err := evaluate.EvaluateResult(results, metric, g.LogCtx)
 		return valueStr, newStatus, err
 	default:
