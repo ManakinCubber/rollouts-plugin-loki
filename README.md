@@ -1,16 +1,16 @@
-# sample-rollouts-metric-plugin
-This contains an example plugin for use with Argo Rollouts plugin system
+# rollouts-plugin-loki
+This contains an example loki plugin for use with Argo Rollouts plugin system. This plugin allows you to use a loki query to check the new version app during the rollout.
 
 ### Build
 
 To build a release build run the command below:
 ```bash
-make build-sample-plugin
+make build-loki-plugin
 ```
 
 To build a debug build run the command below:
 ```bash
-make build-sample-plugin-debug
+make build-loki-plugin-debug
 ```
 
 ### Attaching a debugger to debug build
@@ -40,9 +40,9 @@ metadata:
   name: argo-rollouts-config
 data:
   plugins: |-
-    metrics:
-    - name: "prometheus" # name of the plugin uses the name to find this configuration, it must match the name required by the plugin
-      location: "file://./my-custom-plugin" # supports http(s):// urls and file://
+    metricProviderPlugins: >-
+    - name: "ManakinCubber/rollouts-plugin-loki"
+      location: "file://./my-custom-plugin"
 ```
 
 ### Using a HTTP(S) server to host the plugin executable
@@ -57,36 +57,46 @@ metadata:
   name: argo-rollouts-config
 data:
   plugins: |-
-    metrics:
-    - name: "prometheus" # name of the plugin uses the name to find this configuration, it must match the name required by the plugin
-      location: "https://github.com/argoproj-labs/sample-rollouts-metric-plugin/releases/download/v0.0.3/metric-plugin-linux-amd64" # supports http(s):// urls and file://
+    metricProviderPlugins: >-
+    - name: "ManakinCubber/rollouts-plugin-loki"
+      location: "https://github.com/ManakinCubber/rollouts-plugin-loki/releases/download/v1.0.0/loki-plugin_1.0.0_linux_arm64"
       sha256: "08f588b1c799a37bbe8d0fc74cc1b1492dd70b2c" #optional sha256 checksum of the plugin executable
 ```
 
 ### Sample Analysis Template
 
-An example for this sample plugin below:
+An example for this sample plugin below :
 ```
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
 metadata:
-  name: success-rate
+  name: example-analysis
 spec:
   args:
-    - name: service-name
+    - name: basicAuthUsername
+      valueFrom:
+        secretKeyRef:
+          key: username
+          name: secret-credential-loki
+    - name: basicAuthSecret
+      valueFrom:
+        secretKeyRef:
+          key: password
+          name: secret-credential-loki
   metrics:
-    - name: success-rate
-      interval: 5s
-      # NOTE: prometheus queries return results in the form of a vector.
-      # So it is common to access the index 0 of the returned array to obtain the value
-      successCondition: result[0] >= 8
-      failureLimit: 2
-      count: 3
+    - count: 3
+      failureCondition: result[0] >= 0.10
+      failureLimit: 3
+      interval: 5m
+      name: example-analysis
       provider:
         plugin:
-          argoproj-labs/sample-prometheus:
-            address: http://prometheus.local
-            step: 1m
-            query: |
-              machine_cpu_cores
+          ManakinCubber/rollouts-plugin-loki:
+            address: https://logs.local
+            password: "{{ args.basicAuthSecret }}"
+            query: >
+              sum(rate({cluster="preprod", namespace="app-example"} |=
+              `ERROR` [5m]))
+            timeout: 40
+            username: "{{ args.basicAuthUsername }}"
 ```
