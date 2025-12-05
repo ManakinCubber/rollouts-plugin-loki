@@ -7,7 +7,7 @@ replace github.com/argoproj/argo-rollouts => github.com/zachaller/argo-rollouts 
 require (
 	github.com/argoproj/argo-rollouts v0.0.0-00010101000000-000000000000
 	github.com/hashicorp/go-plugin v1.4.8
-	github.com/sirupsen/logrus v1.9.0
+	github.com/sirupsen/logrus v1.9.1
 	k8s.io/utils v0.0.0-20220706174534-f6158b442e7c
 )
 
